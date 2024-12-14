@@ -11,27 +11,7 @@ require("moment/locale/id"); // Mengimpor bahasa Indonesia untuk moment.js
 // Mengatur locale ke bahasa Indonesia
 moment.locale("id");
 
-const openai = new OpenAI({
-  apiKey:
-    "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", // Masukkan API key langsung di sini
-});
-const getDataGroup = (data, transaksi) => {
-  const result = transaksi.map((b) => {
-    const profil = data.find((p) => p.norm == b.id);
 
-    // // Menampilkan norm dari data dan id dari transaksi pada setiap iterasi
-    // console.log(
-    //   `norm: ${profil ? profil.norm : "Tidak ditemukan"}, id: ${b.id}`
-    // );
-
-    return {
-      id: b.customerid,
-      nama: b.name,
-      no_telpon: profil ? profil.telp : "0",
-    };
-  });
-  return result;
-};
 
 const sendMessageTele = async (text, chat_id, bot) => {
   try {
@@ -140,144 +120,9 @@ function saveBase64File(
   }
 }
 
-async function insertMessageToThread(
-  assistance_id,
-  threadResponse,
-  text,
-  chat_id,
-  id_bot,
-  nama,
-  retryCount = 0
-) {
-  try {
-    // Batasi jumlah percobaan hingga maksimal 4 kali
-    if (retryCount > 4) {
-      sendMessageTele(
-        "<b>Ada Error Dalam Proses Penyisipan Pesan Ke AI</b>",
-        chat_id,
-        id_bot
-      );
-      InsertBug("kosasih", "Max retries reached", {
-        assistance_id,
-        threadResponse,
-        text,
-        retryCount,
-      });
-      return {
-        success: false,
-        message: "Max retries reached, operation failed",
-      };
-    }
-
-    // Buat pesan dengan role "assistant" dan masukkan ke dalam thread
-    await openai.beta.threads.messages.create(threadResponse, {
-      role: "assistant",
-      content: text,
-    });
-
-    console.log("Pesan telah disisipkan sebagai 'assistant'.");
-
-    // Ambil seluruh riwayat pesan dalam thread setelah menyisipkan pesan
-    const replyMessages = await openai.beta.threads.messages.list(
-      threadResponse
-    );
-    const allMessages = replyMessages.data.map((message) => ({
-      role: message.role,
-      content:
-        typeof message.content === "string"
-          ? message.content
-          : JSON.stringify(message.content),
-    }));
-
-    // Kirim permintaan untuk mendapatkan respons dari AI menggunakan endpoint chat completions
-    const aiResponse = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: allMessages,
-    });
-
-    // Ambil balasan AI dari respons
-    const assistantMessages = replyMessages.data.filter(
-      (message) => message.role === "assistant"
-    );
-
-    console.log(assistantMessages, "ass");
-
-    // Mengembalikan hasil dari proses penyisipan pesan ke thread dan respons AI
-    return {
-      success: true,
-      threadResponse,
-      assistantMessages,
-      latestAssistantMessage:
-        aiResponse.choices[0].message.content || "Tidak ada balasan dari AI.",
-    };
-  } catch (error) {
-    console.error("Error in insertMessageToThread, retrying...:", error);
-
-    // Jika error adalah karena run yang masih aktif, tunggu beberapa detik sebelum retry
-    if (
-      error.error &&
-      error.error.message &&
-      error.error.message.includes("active")
-    ) {
-      console.log("Menunggu 20 detik sebelum mencoba lagi...");
-      await new Promise((resolve) => setTimeout(resolve, 20000)); // Tunggu 20 detik sebelum mencoba lagi
-    } else {
-      // Log error using InsertBug when there's an error that is not related to active runs
-      await InsertBug(
-        "kosasih",
-        "AI Process ( No reply )",
-        error.message || error
-      );
-    }
-
-    // Lakukan percobaan lagi (retry)
-    return insertMessageToThread(
-      assistance_id,
-      threadResponse,
-      text,
-      chat_id,
-      id_bot,
-      nama,
-      retryCount + 1
-    );
-  }
-}
-
-async function InsertBug(contact_name, is, bug) {
-  return new Promise((resolve, reject) => {
-    // If `bug` is not a string, use JSON.stringify to convert it to a JSON-formatted string
-    const bugString = typeof bug === "string" ? bug : JSON.stringify(bug);
-
-    // Sanitize the `bug` value by removing any problematic characters
-    const sanitizedBug = bugString.replace(/['"]/g, "");
-
-    // Menggunakan query parameterized untuk keamanan dari SQL Injection
-    const addQuery = `
-      INSERT INTO bug (name, \`in\`, bug, timestamp)
-      VALUES (?, ?, ?, NOW());
-    `;
-
-    // Menjalankan query dengan parameter untuk menghindari SQL Injection
-    connection.query(
-      addQuery,
-      [contact_name, is, sanitizedBug],
-      (error, result) => {
-        if (error) {
-          console.error("Error executing query:", error);
-          return reject({ status: 500, message: "Database error" });
-        }
-
-        console.log("Berhasil Menambah bug");
-        // Mengirimkan hasil query sebagai promise
-        resolve({ status: "Berhasil" });
-      }
-    );
-  });
-}
 module.exports = {
   sendMessageTele,
   saveBase64File,
   sendTelegramMessage,
   sendTelegramImage,
-  insertMessageToThread,
 };
